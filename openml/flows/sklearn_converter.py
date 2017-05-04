@@ -548,10 +548,30 @@ def _serialize_cross_validator(o):
     return ret
 
 def _check_n_jobs(model):
-    '''
-    Returns True if the parameter settings of model are chosen s.t. the model
-     will run on a single core (in that case, openml-python can measure runtimes)
-    '''
+    """Check if it possible to measure the runtime of a model.
+     
+    Runtime measurement is possible if:
+     
+    * no ``n_jobs`` parameter is present in the model or any submodel.
+    * ``n_jobs`` parameter is present in the model or any submodel and is equal 
+      to one.
+    * ``n_jobs`` parameter is set to a value unequal one for the main model, and
+      the main model is an instance of ``sklearn.model_selection.BaseSearchCV``.
+      
+    In any other case it is not possible to obtain the training runtime as it is
+    not possible to measure how much time joblib or other schedulers spend in 
+    their subprocesses.
+    
+    Parameters
+    ----------
+    model : sklearn-compatible model
+    
+    Returns
+    -------
+    bool
+        Whether it is possible to measure the runtime for the given model.
+    """
+
     def check(param_dict, disallow_parameter=False):
         for param, value in param_dict.items():
             # n_jobs is scikitlearn parameter for paralizing jobs
@@ -583,8 +603,12 @@ def _check_n_jobs(model):
             raise PyOpenMLError('openml-python should not be used to '
                                 'optimize the n_jobs parameter.')
 
-    # check the parameters for n_jobs
-    return check(model.get_params(), False)
+        # The n_jobs parameter is allowed for subclasses of BaseSearchCV
+        return True
+    else:
+
+        # check the parameters for n_jobs
+        return check(model.get_params(), False)
 
 def _deserialize_cross_validator(value, **kwargs):
     model_name = value['name']

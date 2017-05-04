@@ -5,6 +5,7 @@ import xmltodict
 import numpy as np
 import warnings
 import sklearn
+import sklearn.model_selection
 import time
 
 from ..exceptions import PyOpenMLError
@@ -247,8 +248,12 @@ def _run_task_get_arffcontent(model, task, class_labels):
                 model_fold.fit(trainX, trainY)
 
                 if can_measure_runtime:
-                    modelfit_duration = (time.process_time() - modelfit_starttime) * 1000
-                    user_defined_measures['usercpu_time_millis_training'][rep_no][fold_no] = modelfit_duration
+                    if isinstance(model_fold, sklearn.model_selection._search.BaseSearchCV):
+                        modelfit_duration = _extract_model_fitting_time(model_fold)
+                        user_defined_measures['wallclock_time_s_training'][rep_no][fold_no] = modelfit_duration
+                    else:
+                        modelfit_duration = (time.process_time() - modelfit_starttime) * 1000
+                        user_defined_measures['usercpu_time_millis_training'][rep_no][fold_no] = modelfit_duration
             except AttributeError as e:
                 # typically happens when training a regressor on classification task
                 raise PyOpenMLError(str(e))
@@ -268,7 +273,10 @@ def _run_task_get_arffcontent(model, task, class_labels):
             if can_measure_runtime:
                 modelpredict_duration = (time.process_time() - modelpredict_starttime) * 1000
                 user_defined_measures['usercpu_time_millis_testing'][rep_no][fold_no] = modelpredict_duration
-                user_defined_measures['usercpu_time_millis'][rep_no][fold_no] = modelfit_duration + modelpredict_duration
+                if 'usercpu_time_millis_training' in user_defined_measures:
+                    user_defined_measures['usercpu_time_millis'][rep_no][fold_no] = modelfit_duration + modelpredict_duration
+                else:
+                    user_defined_measures['time_s'][rep][fold_no] = modelfit_duration + (modelpredict_duration / 1000.)
 
             if ProbaY.shape[1] != len(class_labels):
                 warnings.warn("Repeat %d Fold %d: estimator only predicted for %d/%d classes!" %(rep_no, fold_no, ProbaY.shape[1], len(class_labels)))
@@ -338,6 +346,22 @@ def _extract_arfftrace_attributes(model):
             attribute = ("parameter_" + key[6:], type)
             trace_attributes.append(attribute)
     return trace_attributes
+
+
+def _extract_model_fitting_time(model):
+    """Extracts model fitting time from ``sklearn.model_selection.BaseSearchCV.
+    
+    Parameters
+    ----------
+    model : instance of ``sklearn.model_selection.BaseSearchCV``
+    
+    Returns
+    -------
+    float
+        Time needed to fit all models during the hyperparameter optimization.
+    """
+    return float(np.sum(model.cv_results_['mean_fit_time'],
+                        dtype=np.float128))
 
 
 def get_runs(run_ids):

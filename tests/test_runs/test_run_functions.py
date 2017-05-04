@@ -1,11 +1,14 @@
 import sys
 
+import numpy as np
+
 import openml
 import openml.exceptions
 
 from openml.testing import TestBase
 from openml.runs.functions import _run_task_get_arffcontent
 
+from sklearn.datasets import load_iris
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing.imputation import Imputer
 from sklearn.dummy import DummyClassifier
@@ -173,6 +176,18 @@ class TestRun(TestBase):
             self.assertAlmostEqual(sum(arff_line[3:5]), 1.0)
             self.assertIn(arff_line[5], ['won', 'nowin'])
             self.assertIn(arff_line[6], ['won', 'nowin'])
+
+    def test__extract_model_fitting_time(self):
+        class MockModel(object):
+            def __init__(self):
+                self.cv_results_ = dict()
+                cv_results = np.array([0.1, 0.2, 0.3])
+                self.cv_results_['mean_fit_time'] = cv_results
+        model = MockModel()
+
+        runtime = openml.runs.functions._extract_model_fitting_time(model)
+        self.assertIsInstance(runtime, float)
+        self.assertEqual(runtime, 0.6)
 
     def test_get_run(self):
         # this run is not available on test
