@@ -301,6 +301,14 @@ class TestSklearn(unittest.TestCase):
         # Would raise an exception if the flows would be unequal
         assert_flows_equal(serialized, serialized2)
 
+    def test_serialize_complex_param_grid(self):
+        parameter_grid = {'n_estimators': [1, 5, 10, 100],
+                          'learning_rate': scipy.stats.uniform(0.01, 0.99),
+                          'base_estimator__max_depth': scipy.stats.randint(1, 10)}
+        serialized = openml.flows.sklearn_to_flow(parameter_grid)
+        deserialized = dict(openml.flows.flow_to_sklearn(serialized))
+        self.assertDictEqual(parameter_grid, deserialized)
+
     def test_serialize_type(self):
         supported_types = [float, np.float, np.float32, np.float64,
                            int, np.int, np.int32, np.int64]
