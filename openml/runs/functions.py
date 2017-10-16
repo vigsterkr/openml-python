@@ -103,14 +103,19 @@ def run_flow_on_task(task, flow, avoid_duplicate_runs=True, flow_tags=None,
     if flow.flow_id is None:
         _publish_flow_if_necessary(flow)
 
-    run = OpenMLRun(task_id=task.task_id, flow_id=flow.flow_id,
+    run = OpenMLRun(task_id=task.task_id, task_type=task.task_type_id, flow_id=flow.flow_id,
                     dataset_id=dataset.dataset_id, model=flow.model, tags=tags)
     run.parameter_settings = OpenMLRun._parse_parameters(flow)
 
-    run.data_content, run.trace_content, run.trace_attributes, fold_evaluations, sample_evaluations = res
+    if task.task_type_id in (1,2,3):
+        run.data_content, run.trace_content, run.trace_attributes, fold_evaluations, sample_evaluations = res
+    elif task.task_type_id == 5:
+        run.data_content, run.evaluations = res
     # now we need to attach the detailed evaluations
     if task.task_type_id == 3:
         run.sample_evaluations = sample_evaluations
+    elif task.task_type_id == 5:
+        pass # no fold evaluations for clustering
     else:
         run.fold_evaluations = fold_evaluations
 
