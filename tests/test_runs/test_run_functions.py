@@ -31,7 +31,6 @@ from sklearn.svm import SVC, LinearSVC
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, \
     StratifiedKFold
 from sklearn.pipeline import Pipeline
-from sklearn.cluster import KMeans
 
 
 class HardNaiveBayes(GaussianNB):
@@ -203,37 +202,6 @@ class TestRun(TestBase):
                         self.assertIsInstance(evaluation, float)
                         self.assertGreaterEqual(evaluation, min_val)
                         self.assertLessEqual(evaluation, max_val)
-
-    def _check_evaluations_clustering(self, evaluations, max_time_allowed=60000):
-        '''
-        Checks whether the right timing measures are attached to the run (before upload).
-        Test is only performed for versions >= Python3.3
-
-        In case of check_n_jobs(clf) == false, please do not perform this check (check this
-        condition outside of this function. )
-        default max_time_allowed (per fold, in milli seconds) = 1 minute, quite pessimistic
-        '''
-
-        # a dict mapping from openml measure to a tuple with the minimum and maximum allowed value
-        check_measures = {'usercpu_time_millis_testing': (0, max_time_allowed),
-                          'usercpu_time_millis_training': (0, max_time_allowed),
-                          'usercpu_time_millis': (0, max_time_allowed),
-                          'adjusted_rand_index': (0, 1)}
-
-        self.assertIsInstance(evaluations, dict)
-        if sys.version_info[:2] >= (3, 3):
-            # this only holds if we are allowed to record time (otherwise some are missing)
-            self.assertEquals(set(evaluations.keys()), set(check_measures.keys()))
-
-        for measure in check_measures.keys():
-            if measure in evaluations:
-                min_val = check_measures[measure][0]
-                max_val = check_measures[measure][1]
-                evaluation = evaluations[measure]
-                self.assertIsInstance(evaluation, float)
-                self.assertGreaterEqual(evaluation, min_val)
-                self.assertLessEqual(evaluation, max_val)
-
 
 
     def _check_sample_evaluations(self, sample_evaluations, num_repeats, num_folds, num_samples, max_time_allowed=60000):
@@ -779,31 +747,6 @@ class TestRun(TestBase):
             self.assertAlmostEqual(sum(arff_line[4:6]), 1.0)
             self.assertIn(arff_line[6], ['won', 'nowin'])
             self.assertIn(arff_line[7], ['won', 'nowin'])
-
-    def test__run_task_get_arffcontent_clustering(self):
-        task = openml.tasks.get_task(146714)
-
-        class_labels = task.class_labels
-
-        num_instances = 2310
-
-        clusterer = KMeans()
-        arff_datacontent, evaluations = openml.runs.functions._run_task_get_arffcontent(clusterer, task, class_labels)
-
-        # predictions
-        self.assertIsInstance(arff_datacontent, list)
-        self._check_evaluations_clustering(evaluations)
-
-        # 10 times 10 fold CV of 150 samples
-        self.assertEqual(len(arff_datacontent), num_instances)
-        for arff_line in arff_datacontent:
-            # check number columns
-            self.assertEqual(len(arff_line), 3)
-            # check row id
-            self.assertGreaterEqual(arff_line[0], 0)
-            self.assertLessEqual(arff_line[0], num_instances - 1)
-            # check correct class labels
-            self.assertIn(arff_line[1], task.class_labels)
 
     def test__create_trace_from_arff(self):
         with open(self.static_cache_dir + '/misc/trace.arff', 'r') as arff_file:

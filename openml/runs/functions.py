@@ -358,7 +358,10 @@ def _prediction_to_row(rep_no, fold_no, sample_no, row_id, correct_label,
     arff_line.append(correct_label)
     return arff_line
 
-def _run_task_get_arffcontent_supervised(model, task, class_labels):
+
+# JvR: why is class labels a parameter? could be removed and taken from task object, right?
+def _run_task_get_arffcontent(model, task, class_labels):
+
     def _prediction_to_probabilities(y, model_classes):
         # y: list or numpy array of predictions
         # model_classes: sklearn classifier mapping from original array id to prediction index id
@@ -410,8 +413,7 @@ def _run_task_get_arffcontent_supervised(model, task, class_labels):
 
                     if can_measure_runtime:
                         modelfit_duration = (time.process_time() - modelfit_starttime) * 1000
-                        user_defined_measures_sample['usercpu_time_millis_training'][rep_no][fold_no][
-                            sample_no] = modelfit_duration
+                        user_defined_measures_sample['usercpu_time_millis_training'][rep_no][fold_no][sample_no] = modelfit_duration
                         user_defined_measures_fold['usercpu_time_millis_training'][rep_no][fold_no] = modelfit_duration
                 except AttributeError as e:
                     # typically happens when training a regressor on classification task
@@ -456,16 +458,12 @@ def _run_task_get_arffcontent_supervised(model, task, class_labels):
                 if can_measure_runtime:
                     modelpredict_duration = (time.process_time() - modelpredict_starttime) * 1000
                     user_defined_measures_fold['usercpu_time_millis_testing'][rep_no][fold_no] = modelpredict_duration
-                    user_defined_measures_fold['usercpu_time_millis'][rep_no][
-                        fold_no] = modelfit_duration + modelpredict_duration
-                    user_defined_measures_sample['usercpu_time_millis_testing'][rep_no][fold_no][
-                        sample_no] = modelpredict_duration
-                    user_defined_measures_sample['usercpu_time_millis'][rep_no][fold_no][
-                        sample_no] = modelfit_duration + modelpredict_duration
+                    user_defined_measures_fold['usercpu_time_millis'][rep_no][fold_no] = modelfit_duration + modelpredict_duration
+                    user_defined_measures_sample['usercpu_time_millis_testing'][rep_no][fold_no][sample_no] = modelpredict_duration
+                    user_defined_measures_sample['usercpu_time_millis'][rep_no][fold_no][sample_no] = modelfit_duration + modelpredict_duration
 
                 if ProbaY.shape[1] != len(class_labels):
-                    warnings.warn("Repeat %d Fold %d: estimator only predicted for %d/%d classes!" % (
-                    rep_no, fold_no, ProbaY.shape[1], len(class_labels)))
+                    warnings.warn("Repeat %d Fold %d: estimator only predicted for %d/%d classes!" %(rep_no, fold_no, ProbaY.shape[1], len(class_labels)))
 
                 for i in range(0, len(test_indices)):
                     arff_line = _prediction_to_row(rep_no, fold_no, sample_no,
@@ -485,51 +483,6 @@ def _run_task_get_arffcontent_supervised(model, task, class_labels):
            arff_trace_attributes, \
            user_defined_measures_fold, \
            user_defined_measures_sample
-
-def _run_task_get_arffcontent_unsupervised(model, task, class_labels):
-    X, Y = task.get_X_and_y()
-    arff_datacontent = []
-
-    model = sklearn.base.clone(model, safe=True)
-
-    # sys.version_info returns a tuple, the following line compares the entry of tuples
-    # https://docs.python.org/3.6/reference/expressions.html#value-comparisons
-    can_measure_runtime = sys.version_info[:2] >= (3, 3) and _check_n_jobs(model)
-
-    user_defined_measures = dict()
-
-    # for measuring runtime. Only available since Python 3.3
-    if can_measure_runtime:
-        modelfit_starttime = time.process_time()
-    model.fit(X)
-
-    if can_measure_runtime:
-        user_defined_measures['usercpu_time_millis_training'] = (time.process_time() - modelfit_starttime) * 1000
-        modelpredict_starttime = time.process_time()
-
-    predY = model.predict(X)
-
-    if can_measure_runtime:
-        user_defined_measures['usercpu_time_millis_testing'] = (time.process_time() - modelpredict_starttime) * 1000
-        user_defined_measures['usercpu_time_millis'] = user_defined_measures['usercpu_time_millis_training'] \
-                                                        + user_defined_measures['usercpu_time_millis_testing']
-
-    user_defined_measures['adjusted_rand_index'] = sklearn.metrics.adjusted_rand_score(predY,Y)
-
-    for i in range(0, X.shape[0]):
-        # note that mapping the prediction to a class label does not make any sense here
-        # instances are mapped to their cluster label, which does need to correspond to the class label at all
-        arff_datacontent.append([i,class_labels[Y[i]],predY[i]])
-
-    return arff_datacontent, user_defined_measures
-
-# JvR: why is class labels a parameter? could be removed and taken from task object, right?
-def _run_task_get_arffcontent(model, task, class_labels):
-
-    if task.task_type_id in (1, 2, 3):
-        return _run_task_get_arffcontent_supervised(model, task, class_labels)
-    else:
-        return _run_task_get_arffcontent_unsupervised(model, task, class_labels)
 
 
 def _extract_arfftrace(model, rep_no, fold_no):
