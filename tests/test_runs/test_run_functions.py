@@ -116,7 +116,6 @@ class TestRun(TestBase):
         task = openml.tasks.get_task(task_id)
         run = openml.runs.run_flow_on_task(task, flow, seed=1,
                                            avoid_duplicate_runs=openml.config.avoid_duplicate_runs)
-
         run_ = run.publish()
         self.assertEqual(run_, run)
         self.assertIsInstance(run.dataset_id, int)
@@ -356,18 +355,7 @@ class TestRun(TestBase):
 
         # todo: check if runtime is present
         self._check_fold_evaluations(run.fold_evaluations, 1, num_folds)
-
-    def _run_and_upload_clustering(self, clusterer, rsv):
-        task_id = 146714
-        num_test_instances = 2310
-        run = self._perform_run(task_id, num_test_instances, clusterer,
-                                random_state_value=rsv)
-
-        # obtain ARI scores using get_metric_score:
-        ari_scores = run.get_metric_fn(sklearn.metrics.adjusted_rand_score)
-        # compare with the scores in user defined measures
-        self.assertEquals(run.evaluations['adjusted_rand_index'], ari_scores[0])
-
+        pass
 
     def test_run_and_upload_logistic_regression(self):
         lr = LogisticRegression()
@@ -410,10 +398,6 @@ class TestRun(TestBase):
         # random state of the RandomForestClassifier is set, therefore,
         # it has a different value than the other examples before
         self._run_and_upload(randomsearch, '12172')
-
-    def test_run_and_upload_kmeans(self):
-        km = KMeans()
-        self._run_and_upload_clustering(km, '62501')
 
     ############################################################################
 

@@ -73,18 +73,13 @@ class OpenMLRun(object):
         class_labels = task.class_labels
 
         arff_dict = {}
-        if self.task_type == 5:
-            arff_dict['attributes'] = [('row_id', 'NUMERIC'),
-                                       ('correct', class_labels),
-                                       ('prediction', 'NUMERIC')]
-        else:
-            arff_dict['attributes'] = [('repeat', 'NUMERIC'),  # lowercase 'numeric' gives an error
-                                       ('fold', 'NUMERIC'),
-                                       ('sample', 'NUMERIC'),
-                                       ('row_id', 'NUMERIC')] + \
-                [('confidence.' + class_labels[i], 'NUMERIC') for i in range(len(class_labels))] +\
-                [('prediction', class_labels),
-                 ('correct', class_labels)]
+        arff_dict['attributes'] = [('repeat', 'NUMERIC'),  # lowercase 'numeric' gives an error
+                                   ('fold', 'NUMERIC'),
+                                   ('sample', 'NUMERIC'),
+                                   ('row_id', 'NUMERIC')] + \
+            [('confidence.' + class_labels[i], 'NUMERIC') for i in range(len(class_labels))] +\
+            [('prediction', class_labels),
+             ('correct', class_labels)]
         arff_dict['data'] = self.data_content
         arff_dict['description'] = "\n".join(run_environment)
         arff_dict['relation'] = 'openml_task_' + str(task.task_id) + '_predictions'
@@ -159,56 +154,46 @@ class OpenMLRun(object):
         # might throw KeyError!
         predicted_idx = attribute_dict['prediction']
         correct_idx = attribute_dict['correct']
+        repeat_idx = attribute_dict['repeat']
+        fold_idx = attribute_dict['fold']
+        sample_idx = attribute_dict['sample'] # TODO: this one might be zero
 
-        if self.task_type == 5:
-            corr = []
-            pred = []
-            for line_idx, line in enumerate(predictions_arff['data']):
-                corr.append(line[1])
-                pred.append(line[2])
-            scores = [sklearn_fn(corr, pred, **kwargs)]
-        else:
-            repeat_idx = attribute_dict['repeat']
-            fold_idx = attribute_dict['fold']
-            sample_idx = attribute_dict['sample']  # TODO: this one might be zero
+        if predictions_arff['attributes'][predicted_idx][1] != predictions_arff['attributes'][correct_idx][1]:
+            pred = predictions_arff['attributes'][predicted_idx][1]
+            corr = predictions_arff['attributes'][correct_idx][1]
+            raise ValueError('Predicted and Correct do not have equal values: %s Vs. %s' %(str(pred), str(corr)))
 
-            if predictions_arff['attributes'][predicted_idx][1] != predictions_arff['attributes'][correct_idx][1]:
-                pred = predictions_arff['attributes'][predicted_idx][1]
-                corr = predictions_arff['attributes'][correct_idx][1]
-                raise ValueError('Predicted and Correct do not have equal values: %s Vs. %s' % (str(pred), str(corr)))
+        # TODO: these could be cached
+        values_predict = {}
+        values_correct = {}
+        for line_idx, line in enumerate(predictions_arff['data']):
+            rep = line[repeat_idx]
+            fold = line[fold_idx]
+            samp = line[sample_idx]
 
-            # TODO: these could be cached
-            values_predict = {}
-            values_correct = {}
-            for line_idx, line in enumerate(predictions_arff['data']):
-                rep = line[repeat_idx]
-                fold = line[fold_idx]
-                samp = line[sample_idx]
+            # TODO: can be sped up bt preprocessing index, but OK for now.
+            prediction = predictions_arff['attributes'][predicted_idx][1].index(line[predicted_idx])
+            correct = predictions_arff['attributes'][predicted_idx][1].index(line[correct_idx])
+            if rep not in values_predict:
+                values_predict[rep] = dict()
+                values_correct[rep] = dict()
+            if fold not in values_predict[rep]:
+                values_predict[rep][fold] = dict()
+                values_correct[rep][fold] = dict()
+            if samp not in values_predict[rep][fold]:
+                values_predict[rep][fold][samp] = []
+                values_correct[rep][fold][samp] = []
 
-                # TODO: can be sped up bt preprocessing index, but OK for now.
-                prediction = predictions_arff['attributes'][predicted_idx][1].index(line[predicted_idx])
-                correct = predictions_arff['attributes'][predicted_idx][1].index(line[correct_idx])
-                if rep not in values_predict:
-                    values_predict[rep] = dict()
-                    values_correct[rep] = dict()
-                if fold not in values_predict[rep]:
-                    values_predict[rep][fold] = dict()
-                    values_correct[rep][fold] = dict()
-                if samp not in values_predict[rep][fold]:
-                    values_predict[rep][fold][samp] = []
-                    values_correct[rep][fold][samp] = []
+            values_predict[line[repeat_idx]][line[fold_idx]][line[sample_idx]].append(prediction)
+            values_correct[line[repeat_idx]][line[fold_idx]][line[sample_idx]].append(correct)
 
-                values_predict[line[repeat_idx]][line[fold_idx]][line[sample_idx]].append(prediction)
-                values_correct[line[repeat_idx]][line[fold_idx]][line[sample_idx]].append(correct)
-
-            scores = []
-            for rep in values_predict.keys():
-                for fold in values_predict[rep].keys():
-                    last_sample = len(values_predict[rep][fold]) - 1
-                    y_pred = values_predict[rep][fold][last_sample]
-                    y_true = values_correct[rep][fold][last_sample]
-                    scores.append(sklearn_fn(y_true, y_pred, **kwargs))
-
+        scores = []
+        for rep in values_predict.keys():
+            for fold in values_predict[rep].keys():
+                last_sample = len(values_predict[rep][fold]) - 1
+                y_pred = values_predict[rep][fold][last_sample]
+                y_true = values_correct[rep][fold][last_sample]
+                scores.append(sklearn_fn(y_true, y_pred, **kwargs))
         return np.array(scores)
 
     def publish(self):
@@ -230,7 +215,6 @@ class OpenMLRun(object):
         file_elements = {'description': ("description.xml", description_xml)}
 
         if self.error_message is None:
-            d = self._generate_arff_dict()
             predictions = arff.dumps(self._generate_arff_dict())
             file_elements['predictions'] = ("predictions.arff", predictions)
 
@@ -258,17 +242,13 @@ class OpenMLRun(object):
         #     ' ', '_').replace('/', '-').replace(':', '.')
         # tags = run_environment + [well_formatted_time] + ['run_task'] + \
         #     [self.model.__module__ + "." + self.model.__class__.__name__]
-        single_evaluations = self.evaluations if self.task_type == 5 else None
-
         description = _to_dict(taskid=self.task_id, flow_id=self.flow_id,
                                setup_string=_create_setup_string(self.model),
                                parameter_settings=self.parameter_settings,
                                error_message=self.error_message,
                                fold_evaluations=self.fold_evaluations,
                                sample_evaluations=self.sample_evaluations,
-                               tags=self.tags,
-                               single_evaluations=single_evaluations)
-
+                               tags=self.tags)
         description_xml = xmltodict.unparse(description, pretty=True)
         return description_xml
 
@@ -398,7 +378,7 @@ def _get_version_information():
 
 
 def _to_dict(taskid, flow_id, setup_string, error_message, parameter_settings,
-             tags=None, fold_evaluations=None, sample_evaluations=None, single_evaluations=None):
+             tags=None, fold_evaluations=None, sample_evaluations=None):
     """ Creates a dictionary corresponding to the desired xml desired by openML
 
     Parameters
@@ -416,8 +396,7 @@ def _to_dict(taskid, flow_id, setup_string, error_message, parameter_settings,
         to a dict mapping from fold nr to a value (double)
     sample_evaluations : dict mapping from evaluation measure to a dict mapping repeat_nr
         to a dict mapping from fold nr to a dict mapping to a sample nr to a value (double)
-    single_evaluation : dict mapping evaluation measure to a single value (e.g. used for clustering,
-        where there are no folds / repeats)
+    sample_evaluations :
     Returns
     -------
     result : an array with version information of the above packages
@@ -432,7 +411,7 @@ def _to_dict(taskid, flow_id, setup_string, error_message, parameter_settings,
     description['oml:run']['oml:parameter_setting'] = parameter_settings
     if tags is not None:
         description['oml:run']['oml:tag'] = tags  # Tags describing the run
-    if fold_evaluations is not None or sample_evaluations is not None or single_evaluations is not None:
+    if fold_evaluations is not None or sample_evaluations is not None:
         description['oml:run']['oml:output_data'] = dict()
         description['oml:run']['oml:output_data']['oml:evaluation'] = list()
     if fold_evaluations is not None:
@@ -451,10 +430,6 @@ def _to_dict(taskid, flow_id, setup_string, error_message, parameter_settings,
                                                ('@sample', str(sample)), ('oml:name', measure),
                                                ('oml:value', str(value))])
                         description['oml:run']['oml:output_data']['oml:evaluation'].append(current)
-    if single_evaluations is not None:
-        for measure in single_evaluations:
-            current = OrderedDict([('oml:name', measure), ('oml:value', str(single_evaluations[measure]))])
-            description['oml:run']['oml:output_data']['oml:evaluation'].append(current)
     return description
 
 
