@@ -49,9 +49,9 @@ class TestBase(unittest.TestCase):
 
         self.cached = True
         # amueller's read/write key that he will throw away later
-        openml.config.apikey = "610344db6388d9ba34f6db45a3cf71de"
+        openml.config.apikey = "7dda4ac487aa5ab66622cea88357fede"
         self.production_server = openml.config.server
-        self.test_server = "https://test.openml.org/api/v1/xml"
+        self.test_server = "https://openml.org/api/v1/xml"
         openml.config.server = self.test_server
         openml.config.avoid_duplicate_runs = False
 

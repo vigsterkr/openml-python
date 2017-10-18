@@ -76,10 +76,16 @@ class OpenMLRun(object):
         arff_dict['attributes'] = [('repeat', 'NUMERIC'),  # lowercase 'numeric' gives an error
                                    ('fold', 'NUMERIC'),
                                    ('sample', 'NUMERIC'),
-                                   ('row_id', 'NUMERIC')] + \
-            [('confidence.' + class_labels[i], 'NUMERIC') for i in range(len(class_labels))] +\
-            [('prediction', class_labels),
-             ('correct', class_labels)]
+                                   ('row_id', 'NUMERIC')]
+
+        if task.task_type_id == 5:
+            n_clusters = len(set(np.array(self.data_content)[:,-2]))
+            arff_dict['attributes'] += [('confidence.' + str(i), 'NUMERIC') for i in range(n_clusters)]
+            arff_dict['attributes'] += [('prediction', [str(x) for x in range(n_clusters)]), ('correct', class_labels)]
+        else:
+            arff_dict['attributes'] += [('confidence.' + class_labels[i], 'NUMERIC') for i in range(len(class_labels))]
+            arff_dict['attributes'] += [('prediction', class_labels), ('correct', class_labels)]
+
         arff_dict['data'] = self.data_content
         arff_dict['description'] = "\n".join(run_environment)
         arff_dict['relation'] = 'openml_task_' + str(task.task_id) + '_predictions'
