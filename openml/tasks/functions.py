@@ -328,6 +328,12 @@ def _create_task_from_xml(xml):
     # Due to the unordered structure we obtain, we first have to extract
     # the possible keys of oml:input; dic["oml:input"] is a list of
     # OrderedDicts
+
+    # If there is only one 'input' object in the xml, dic["oml:input"] will not contain a list of OrderDict objects
+    # but simply the single OrderedDict object. A list is created for compatibility with the remainder of the code.
+    if not isinstance(dic["oml:input"], list):
+        dic["oml:input"] = [dic["oml:input"]]
+
     for input_ in dic["oml:input"]:
         name = input_["@name"]
         inputs[name] = input_
@@ -338,12 +344,18 @@ def _create_task_from_xml(xml):
 
 
     # Convert some more parameters
-    for parameter in \
-            inputs["estimation_procedure"]["oml:estimation_procedure"][
-                "oml:parameter"]:
-        name = parameter["@name"]
-        text = parameter.get("#text", "")
-        estimation_parameters[name] = text
+    if "estimation_procedure" in inputs:
+        for parameter in \
+                inputs["estimation_procedure"]["oml:estimation_procedure"][
+                    "oml:parameter"]:
+            name = parameter["@name"]
+            text = parameter.get("#text", "")
+            estimation_parameters[name] = text
+    else:
+        inputs["estimation_procedure"] = {'oml:estimation_procedure':
+                                              {'oml:type': None, \
+                                               'oml:data_splits_url': None} \
+                                          }
 
     return OpenMLTask(
         dic["oml:task_id"], dic['oml:task_type_id'], dic["oml:task_type"],

@@ -30,6 +30,7 @@ from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
 from sklearn.svm import SVC, LinearSVC
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, \
     StratifiedKFold
+from sklearn.cluster import KMeans
 from sklearn.pipeline import Pipeline
 
 
@@ -167,7 +168,7 @@ class TestRun(TestBase):
 
         return run
 
-    def _check_fold_evaluations(self, fold_evaluations, num_repeats, num_folds, max_time_allowed=60000):
+    def _check_fold_evaluations(self, fold_evaluations, num_repeats, num_folds, task_type_id, max_time_allowed=60000):
         '''
         Checks whether the right timing measures are attached to the run (before upload).
         Test is only performed for versions >= Python3.3
@@ -180,8 +181,12 @@ class TestRun(TestBase):
         # a dict mapping from openml measure to a tuple with the minimum and maximum allowed value
         check_measures = {'usercpu_time_millis_testing': (0, max_time_allowed),
                           'usercpu_time_millis_training': (0, max_time_allowed),  # should take at least one millisecond (?)
-                          'usercpu_time_millis': (0, max_time_allowed),
-                          'predictive_accuracy': (0, 1)}
+                          'usercpu_time_millis': (0, max_time_allowed)}
+
+        if task_type_id == 5:
+            check_measures['adjusted_rand_score'] = (0,1)
+        else:
+            check_measures['predictive_accuracy'] = (0,1)
 
         self.assertIsInstance(fold_evaluations, dict)
         if sys.version_info[:2] >= (3, 3):
@@ -322,12 +327,27 @@ class TestRun(TestBase):
             self.assertTrue(check_res)
 
         # todo: check if runtime is present
-        self._check_fold_evaluations(run.fold_evaluations, 1, num_folds)
+        self._check_fold_evaluations(run.fold_evaluations, 1, num_folds, 1)
         pass
+
+    def _run_and_upload_clustering(self, clusterer, rsv):
+        task_id = 146714
+        num_test_instances = 2310
+        run = self._perform_run(task_id, num_test_instances, clusterer,
+                                random_state_value=rsv)
+
+        # obtain ARI scores using get_metric_score:
+        ari_scores = run.get_metric_fn(sklearn.metrics.adjusted_rand_score)
+        # compare with the scores in user defined measures
+        self.assertEquals(run.evaluations['adjusted_rand_index'], ari_scores[0])
 
     def test_run_and_upload_logistic_regression(self):
         lr = LogisticRegression()
         self._run_and_upload(lr, '62501')
+
+    def test_run_and_upload_kmeans(self):
+        km = KMeans()
+        self._run_and_upload_clustering(km, '62501')
 
     def test_run_and_upload_pipeline_dummy_pipeline(self):
 
@@ -727,7 +747,7 @@ class TestRun(TestBase):
         # trace. SGD does not produce any
         self.assertIsInstance(arff_tracecontent, type(None))
 
-        self._check_fold_evaluations(fold_evaluations, num_repeats, num_folds)
+        self._check_fold_evaluations(fold_evaluations, num_repeats, num_folds, 1)
 
         # 10 times 10 fold CV of 150 samples
         self.assertEqual(len(arff_datacontent), num_instances * num_repeats)
@@ -747,6 +767,42 @@ class TestRun(TestBase):
             self.assertAlmostEqual(sum(arff_line[4:6]), 1.0)
             self.assertIn(arff_line[6], ['won', 'nowin'])
             self.assertIn(arff_line[7], ['won', 'nowin'])
+
+    def test__run_task_get_arffcontent_clustering(self):
+        task = openml.tasks.get_task(146714)
+        class_labels = task.class_labels
+        num_instances = 2310
+        num_folds = 1
+        num_repeats = 1
+
+        clusterer = KMeans(random_state=1)
+        res = openml.runs.functions._run_task_get_arffcontent(clusterer, task, class_labels)
+
+        arff_datacontent, arff_tracecontent, _, fold_evaluations, sample_evaluations = res
+        # predictions
+        self.assertIsInstance(arff_datacontent, list)
+        # trace. SGD does not produce any
+        self.assertIsInstance(arff_tracecontent, type(None))
+
+        self._check_fold_evaluations(fold_evaluations, num_repeats, num_folds, 5)
+
+        self.assertEqual(len(arff_datacontent), num_instances)
+        for arff_line in arff_datacontent:
+            # check number columns
+            self.assertEqual(len(arff_line), 14)
+            # check repeat
+            self.assertGreaterEqual(arff_line[0], 0)
+            self.assertLessEqual(arff_line[0], num_repeats - 1)
+            # check fold
+            self.assertGreaterEqual(arff_line[1], 0)
+            self.assertLessEqual(arff_line[1], num_folds - 1)
+            # check row id
+            self.assertGreaterEqual(arff_line[3], 0)
+            self.assertLessEqual(arff_line[3], num_instances - 1)
+            # check confidences
+            self.assertAlmostEqual(sum(arff_line[4:12]), 1.0)
+            self.assertIn(arff_line[12], range(8)) # default # clusters for KMeans
+            self.assertIn(arff_line[13], ['brickface', 'sky','foliage', 'cement', 'window', 'path', 'grass'])
 
     def test__create_trace_from_arff(self):
         with open(self.static_cache_dir + '/misc/trace.arff', 'r') as arff_file:

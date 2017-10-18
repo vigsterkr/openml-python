@@ -309,7 +309,7 @@ def _get_seeded_model(model, seed=None):
 
 def _prediction_to_row(rep_no, fold_no, sample_no, row_id, correct_label,
                        predicted_label, predicted_probabilities, class_labels,
-                       model_classes_mapping):
+                       model_classes_mapping, task_type_id):
     """Util function that turns probability estimates of a classifier for a given
         instance into the right arff format to upload to openml.
 
@@ -347,14 +347,24 @@ def _prediction_to_row(rep_no, fold_no, sample_no, row_id, correct_label,
         raise ValueError('len(predicted_probabilities) != len(class_labels)')
 
     arff_line = [rep_no, fold_no, sample_no, row_id]
-    for class_label_idx in range(len(class_labels)):
+    for class_label_idx in range(len(model_classes_mapping)):
         if class_label_idx in model_classes_mapping:
-            index = np.where(model_classes_mapping == class_label_idx)[0][0]  # TODO: WHY IS THIS 2D???
+            if task_type_id == 5:
+                # there is no mapping from cluster labels to class labels, the probabilities denote cluster
+                # memberships
+                index = class_label_idx
+            else:
+                index = np.where(model_classes_mapping == class_label_idx)[0][0]  # TODO: WHY IS THIS 2D???
             arff_line.append(predicted_probabilities[index])
         else:
             arff_line.append(0.0)
 
-    arff_line.append(class_labels[predicted_label])
+    if task_type_id == 5:
+        # there is no mapping from cluster labels to class labels
+        arff_line.append(predicted_label)
+    else:
+        arff_line.append(class_labels[predicted_label])
+
     arff_line.append(correct_label)
     return arff_line
 
@@ -432,15 +442,19 @@ def _run_task_get_arffcontent(model, task, class_labels):
                 else:
                     used_estimator = model_fold
 
-                if isinstance(used_estimator, sklearn.model_selection._search.BaseSearchCV):
-                    model_classes = used_estimator.best_estimator_.classes_
-                else:
-                    model_classes = used_estimator.classes_
-
                 if can_measure_runtime:
                     modelpredict_starttime = time.process_time()
 
                 PredY = model_fold.predict(testX)
+
+                if isinstance(used_estimator, sklearn.model_selection._search.BaseSearchCV):
+                    model_classes = used_estimator.best_estimator_.classes_
+                elif task.task_type_id == 5:
+                    max_class_clust = max(len(set(PredY)),len(set(Y)))
+                    model_classes = np.array(list(range(max_class_clust)))
+                else:
+                    model_classes = used_estimator.classes_
+
                 try:
                     ProbaY = model_fold.predict_proba(testX)
                 except AttributeError:
@@ -453,7 +467,10 @@ def _run_task_get_arffcontent(model, task, class_labels):
                     user_defined_measures_sample[openml_name][rep_no][fold_no][sample_no] = \
                         sklearn_fn(testY, PredY)
 
-                _calculate_local_measure(sklearn.metrics.accuracy_score, 'predictive_accuracy')
+                if task.task_type_id == 5:
+                    _calculate_local_measure(sklearn.metrics.adjusted_rand_score, 'adjusted_rand_score')
+                else:
+                    _calculate_local_measure(sklearn.metrics.accuracy_score, 'predictive_accuracy')
 
                 if can_measure_runtime:
                     modelpredict_duration = (time.process_time() - modelpredict_starttime) * 1000
@@ -468,7 +485,7 @@ def _run_task_get_arffcontent(model, task, class_labels):
                 for i in range(0, len(test_indices)):
                     arff_line = _prediction_to_row(rep_no, fold_no, sample_no,
                                                    test_indices[i], class_labels[testY[i]],
-                                                   PredY[i], ProbaY[i], class_labels, model_classes)
+                                                   PredY[i], ProbaY[i], class_labels, model_classes, task.task_type_id)
                     arff_datacontent.append(arff_line)
 
     if isinstance(model_fold, sklearn.model_selection._search.BaseSearchCV):

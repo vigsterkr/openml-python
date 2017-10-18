@@ -44,7 +44,7 @@ class OpenMLTask(object):
 
         """
         dataset = self.get_dataset()
-        if self.task_type_id not in (1, 2, 3):
+        if self.task_type_id not in (1, 2, 3, 5):
             raise NotImplementedError(self.task_type)
         X_and_y = dataset.get_data(target=self.target_name)
         return X_and_y
@@ -72,19 +72,26 @@ class OpenMLTask(object):
     def download_split(self):
         """Download the OpenML split for a given task.
         """
-        cached_split_file = os.path.join(
-            _create_task_cache_dir(self.task_id), "datasplits.arff")
+        if self.estimation_procedure["data_splits_url"]:
+            cached_split_file = os.path.join(
+                _create_task_cache_dir(self.task_id), "datasplits.arff")
 
-        try:
-            split = OpenMLSplit._from_arff_file(cached_split_file)
-        # Add FileNotFoundError in python3 version (which should be a
-        # subclass of OSError.
-        except (OSError, IOError):
-            # Next, download and cache the associated split file
-            self._download_split(cached_split_file)
-            split = OpenMLSplit._from_arff_file(cached_split_file)
+            try:
+                split = OpenMLSplit._from_arff_file(cached_split_file)
+            # Add FileNotFoundError in python3 version (which should be a
+            # subclass of OSError.
+            except (OSError, IOError):
+                # Next, download and cache the associated split file
+                self._download_split(cached_split_file)
+                split = OpenMLSplit._from_arff_file(cached_split_file)
 
-        return split
+            return split
+        else:
+            # not all tasks come with a split, e.g. in clustering the full dataset is always used
+            no_split = {0: {0: {0: (list(range(self.get_dataset().get_data().shape[0])),
+                                    list(range(self.get_dataset().get_data().shape[0])))}}}
+            split = OpenMLSplit('no_split', 'no actual split, all points in train and test', no_split)
+            return split
 
     def get_split_dimensions(self):
         if self.split is None:
