@@ -425,7 +425,7 @@ def _run_task_get_arffcontent(model, task):
            user_defined_measures_per_sample
 
 
-def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runtime):
+def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runtime, num_iterations=None):
     """Internal function that executes a model on a fold (and possibly
        subsample) of the dataset. It returns the data that is necessary
        to construct the OpenML Run object (potentially over more than
@@ -450,6 +450,10 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
         can_measure_runtime : bool
             Wether we are allowed to measure runtime (requires: Single node
             computation and Python >= 3.3)
+        num_iterations : int
+            If set, the partial fit method of a estimator will be used
+            rather than the actual fit method. This way, this function can
+            be invoked subsequently to construct a learning curve.
 
         Returns
         -------
@@ -493,7 +497,11 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
         # for measuring runtime. Only available since Python 3.3
         if can_measure_runtime:
             modelfit_starttime = time.process_time()
-        model.fit(trainX, trainY)
+        if num_iterations:
+            for _ in range(num_iterations):
+                model.partial_fit(trainX, trainY, np.unique(testY))
+        else:
+            model.fit(trainX, trainY)
 
         if can_measure_runtime:
             modelfit_duration = (time.process_time() - modelfit_starttime) * 1000
