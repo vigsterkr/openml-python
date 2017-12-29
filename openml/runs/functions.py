@@ -499,7 +499,7 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
             modelfit_starttime = time.process_time()
         if num_iterations:
             for _ in range(num_iterations):
-                model.partial_fit(trainX, trainY, np.unique(testY))
+                model.partial_fit(self=model, X=trainX, y=trainY, unique=np.unique(testY))
         else:
             model.fit(trainX, trainY)
 
