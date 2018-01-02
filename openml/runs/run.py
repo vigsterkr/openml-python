@@ -73,7 +73,7 @@ class OpenMLRun(object):
         task = get_task(self.task_id)
         class_labels = task.class_labels
 
-        arff_dict = {}
+        arff_dict = dict()
         arff_dict['attributes'] = [('repeat', 'NUMERIC'),  # lowercase 'numeric' gives an error
                                    ('fold', 'NUMERIC'),
                                    ('sample', 'NUMERIC'),

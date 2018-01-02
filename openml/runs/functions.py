@@ -709,8 +709,8 @@ def _create_run_from_xml(xml, from_server=True):
     setup_string = obtain_field(run, 'oml:setup_string', from_server)
 
     parameters = dict()
-    if 'oml:parameter_settings' in run:
-        parameter_settings = run['oml:parameter_settings']
+    if 'oml:parameter_setting' in run:
+        parameter_settings = run['oml:parameter_setting']
         for parameter_dict in parameter_settings:
             key = parameter_dict['oml:name']
             value = parameter_dict['oml:value']
