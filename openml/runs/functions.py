@@ -364,18 +364,6 @@ def _prediction_to_row(rep_no, fold_no, sample_no, row_id, correct_label,
 
 
 def _run_task_get_arffcontent(model, task):
-
-    def _prediction_to_probabilities(y, model_classes):
-        # y: list or numpy array of predictions
-        # model_classes: sklearn classifier mapping from original array id to prediction index id
-        if not isinstance(model_classes, list):
-            raise ValueError('please convert model classes to list prior to calling this fn')
-        result = np.zeros((len(y), len(model_classes)), dtype=np.float32)
-        for obs, prediction_idx in enumerate(y):
-            array_idx = model_classes.index(prediction_idx)
-            result[obs][array_idx] = 1.0
-        return result
-
     arff_datacontent = []
     arff_tracecontent = []
     # stores fold-based evaluation measures. In case of a sample based task,
