@@ -75,44 +75,59 @@ def run_flow_on_task(task, flow, avoid_duplicate_runs=True, flow_tags=None,
         raise ValueError("flow_tags should be list")
 
     flow.model = _get_seeded_model(flow.model, seed=seed)
-
+    
+    ### Check if the model/version combinations define an existing flow.
+    ### If so, retrieve from server
+    ### If not, create it
+    
     # skips the run if it already exists and the user opts for this in the config file.
     # also, if the flow is not present on the server, the check is not needed.
     flow_id = flow_exists(flow.name, flow.external_version)
-    if avoid_duplicate_runs and flow_id:
+    if flow_id:
         flow_from_server = get_flow(flow_id)
-        setup_id = setup_exists(flow_from_server, flow.model)
+        _copy_server_fields(flow_from_server, flow)
+    
+    # in case the flow not exists, we will get a "False" back (which can be
+    if not isinstance(flow.flow_id, int) or flow_id == False:
+        _publish_flow_if_necessary(flow)
+    
+    ### Make sure not to create duplicate runs if needed.
+    if avoid_duplicate_runs:
+        setup_id = setup_exists(flow, flow.model)
         ids = _run_exists(task.task_id, setup_id)
         if ids:
             raise PyOpenMLError("Run already exists in server. Run id(s): %s" %str(ids))
-        _copy_server_fields(flow_from_server, flow)
 
     dataset = task.get_dataset()
 
+    run_environment = _get_version_information()
+    tags = ['openml-python', run_environment[1]]
+        
+    run = OpenMLRun(task_id=task.task_id, flow_id=flow.flow_id,
+                    dataset_id=dataset.dataset_id, model=flow.model, tags=tags)
+    run.parameter_settings = OpenMLRun._parse_parameters(flow)
+    
+    ## Task Type Dependent Stuff ##############################################
     if task.class_labels is None:
         raise ValueError('The task has no class labels. This method currently '
                          'only works for tasks with class labels.')
 
-    run_environment = _get_version_information()
-    tags = ['openml-python', run_environment[1]]
 
     # execute the run
     res = _run_task_get_arffcontent(flow.model, task)
-
-    # in case the flow not exists, we will get a "False" back (which can be
-    if not isinstance(flow.flow_id, int) or flow_id == False:
-        _publish_flow_if_necessary(flow)
-
-    run = OpenMLRun(task_id=task.task_id, flow_id=flow.flow_id,
-                    dataset_id=dataset.dataset_id, model=flow.model, tags=tags)
-    run.parameter_settings = OpenMLRun._parse_parameters(flow)
+    
+    ## Task Type Agnostic Again ###############################################
 
     run.data_content, run.trace_content, run.trace_attributes, fold_evaluations, sample_evaluations = res
+    
+    # Task Type Dependent #####################################################
     # now we need to attach the detailed evaluations
     if task.task_type_id == 3:
         run.sample_evaluations = sample_evaluations
     else:
         run.fold_evaluations = fold_evaluations
+        
+    # Task Type Agnostic  #####################################################
 
     config.logger.info('Executed Task %d with Flow id: %d' % (task.task_id, run.flow_id))
 
@@ -513,6 +528,8 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
         modelpredict_starttime = time.process_time()
 
     PredY = model.predict(testX)
+    
+    # IF CLASSIFICATION
     try:
         ProbaY = model.predict_proba(testX)
     except AttributeError:
