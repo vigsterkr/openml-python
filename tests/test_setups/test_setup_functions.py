@@ -113,10 +113,11 @@ class TestSetupFunctions(TestBase):
         task = openml.tasks.get_task(119)
         flow = openml.flows.sklearn_to_flow(DecisionTreeClassifier(max_depth=1))
         run = openml.runs.run_flow_on_task(task, flow, avoid_duplicate_runs=False)
-        run.publish()
+        run = openml.runs.get_run(run.publish().run_id)
+        examplar_setup = openml.setups.get_setup(run.setup_id)
 
         for param in ['random_state', 'max_depth', 'min_samples_leaf']:
-            partial_setup = openml.setups.get_partial_setup(flow, ignore_parameters=[param])
+            partial_setup = openml.setups.get_partial_setup(examplar_setup, ignore_parameters=[param])
             self.assertGreaterEqual(partial_setup, 1)
 
 

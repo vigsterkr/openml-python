@@ -1,5 +1,4 @@
-from collections import OrderedDict
-
+import collections
 import io
 import openml
 import os
@@ -59,53 +58,47 @@ def setup_exists(flow, model=None):
         return False
 
 
-def get_partial_setup(flow, model=None, ignore_parameters=[]):
+def get_partial_setup(full_setup, ignore_parameters=[]):
     """
     Checks whether a partial hyperparameter configuration already
-    exists on the server.
+    exists on the server. It does this based on an example setup
+    and a set of hyperparameters that should be ignored
 
     Parameters
     ----------
 
-    flow : flow
-        The openml flow object.
-
-    model : BaseEstimator, optional
-        If given, the parameters are parsed from this model instead of the
-        model in the flow. If not given, parameters are parsed from
-        ``flow.model``.
+    full_setup : OpenMLSetup
+        A version of the full setup. All parameters (name,
+        component, value) from this one will be used to
+        find similar setups
 
     ignore_parameters : list
-        The list of parameters that should be ignored
+        The list of parameters that should be ignored (max 2)
 
     Returns
     -------
     setup_id : int
         setup id iff exists, False otherwise
     """
-    # sadly, this api call relies on a run object
-    openml.flows.functions._check_flow_for_server_id(flow)
+    if len(ignore_parameters) > 2:
+        raise ValueError('Function in beta stage, please specify at most 2 ignore parameters')
 
-    if model is None:
-        model = flow.model
-    else:
-        exists = flow_exists(flow.name, flow.external_version)
-        if exists != flow.flow_id:
-            raise ValueError('This should not happen!')
-
-    openml_param_settings = openml.runs.OpenMLRun._parse_parameters(flow, model)
-    openml_param_settings_accept = []
+    parameters_included = []
     # post process param settings: remove parameters from the ignore list
-    for openml_param_setting in openml_param_settings:
-        if openml_param_setting['oml:name'] not in ignore_parameters:
-            openml_param_settings_accept.append(openml_param_setting)
-    if len(openml_param_settings_accept) + len(ignore_parameters) > len(openml_param_settings):
+    for _, param in full_setup.parameters.items():
+        if param.parameter_name not in ignore_parameters:
+            current = collections.OrderedDict()
+            current['oml:name'] = param.parameter_name
+            current['oml:value'] = param.value
+            current['oml:component'] = param.flow_id
+            parameters_included.append(current)
+    if len(parameters_included) + len(ignore_parameters) > len(full_setup.parameters):
         raise ValueError('accepted parameters higher then expected. Not all requested parameters existed.. ')
-    elif len(openml_param_settings_accept) + len(ignore_parameters) > len(openml_param_settings):
+    elif len(parameters_included) + len(ignore_parameters) > len(full_setup.parameters):
         raise Warning('accepted parameters lower then expected. Probably due to "double" parameter.. ')
 
-    description = xmltodict.unparse(_to_dict(flow.flow_id,
-                                             openml_param_settings_accept),
+    description = xmltodict.unparse(_to_dict(full_setup.flow_id,
+                                             parameters_included),
                                     pretty=True)
     file_elements = {'description': ('description.arff', description)}
 
@@ -309,8 +302,8 @@ def initialize_model(setup_id):
 
 def _to_dict(flow_id, openml_parameter_settings):
     # for convenience, this function (ab)uses the run object.
-    xml = OrderedDict()
-    xml['oml:run'] = OrderedDict()
+    xml = collections.OrderedDict()
+    xml['oml:run'] = collections.OrderedDict()
     xml['oml:run']['@xmlns:oml'] = 'http://openml.org/openml'
     xml['oml:run']['oml:flow_id'] = flow_id
     xml['oml:run']['oml:parameter_setting'] = openml_parameter_settings
