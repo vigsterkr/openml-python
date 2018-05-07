@@ -13,7 +13,7 @@ import openml.utils
 
 
 def setup_exists(flow, model=None):
-    '''
+    """
     Checks whether a hyperparameter configuration already exists on the server.
 
     Parameters
@@ -22,7 +22,7 @@ def setup_exists(flow, model=None):
     flow : flow
         The openml flow object.
 
-    sklearn_model : BaseEstimator, optional
+    model : BaseEstimator, optional
         If given, the parameters are parsed from this model instead of the
         model in the flow. If not given, parameters are parsed from
         ``flow.model``.
@@ -31,7 +31,7 @@ def setup_exists(flow, model=None):
     -------
     setup_id : int
         setup id iff exists, False otherwise
-    '''
+    """
 
     # sadly, this api call relies on a run object
     openml.flows.functions._check_flow_for_server_id(flow)
@@ -57,6 +57,67 @@ def setup_exists(flow, model=None):
         return setup_id
     else:
         return False
+
+
+def get_partial_setup(flow, model=None, ignore_parameters=[]):
+    """
+    Checks whether a partial hyperparameter configuration already
+    exists on the server.
+
+    Parameters
+    ----------
+
+    flow : flow
+        The openml flow object.
+
+    model : BaseEstimator, optional
+        If given, the parameters are parsed from this model instead of the
+        model in the flow. If not given, parameters are parsed from
+        ``flow.model``.
+
+    ignore_parameters : list
+        The list of parameters that should be ignored
+
+    Returns
+    -------
+    setup_id : int
+        setup id iff exists, False otherwise
+    """
+    # sadly, this api call relies on a run object
+    openml.flows.functions._check_flow_for_server_id(flow)
+
+    if model is None:
+        model = flow.model
+    else:
+        exists = flow_exists(flow.name, flow.external_version)
+        if exists != flow.flow_id:
+            raise ValueError('This should not happen!')
+
+    openml_param_settings = openml.runs.OpenMLRun._parse_parameters(flow, model)
+    openml_param_settings_accept = []
+    # post process param settings: remove parameters from the ignore list
+    for openml_param_setting in openml_param_settings:
+        if openml_param_setting['oml:name'] not in ignore_parameters:
+            openml_param_settings_accept.append(openml_param_setting)
+    if len(openml_param_settings_accept) + len(ignore_parameters) > len(openml_param_settings):
+        raise ValueError('accepted parameters higher then expected. Not all requested parameters existed.. ')
+    elif len(openml_param_settings_accept) + len(ignore_parameters) > len(openml_param_settings):
+        raise Warning('accepted parameters lower then expected. Probably due to "double" parameter.. ')
+
+    description = xmltodict.unparse(_to_dict(flow.flow_id,
+                                             openml_param_settings_accept),
+                                    pretty=True)
+    file_elements = {'description': ('description.arff', description)}
+
+    api_result = openml._api_calls._perform_api_call('/setup/partial/', file_elements=file_elements)
+    setups_dict = xmltodict.parse(api_result, force_list=('oml:setup',))
+    setups = dict()
+    for setup_ in setups_dict['oml:setups']['oml:setup']:
+        # making it a dict to give it the right format
+        current = _create_setup_from_xml({'oml:setup_parameters': setup_})
+        setups[current.setup_id] = current
+
+    return setups
 
 
 def _get_cached_setup(setup_id):
@@ -258,9 +319,9 @@ def _to_dict(flow_id, openml_parameter_settings):
 
 
 def _create_setup_from_xml(result_dict):
-    '''
+    """
      Turns an API xml result into a OpenMLSetup object
-    '''
+    """
     setup_id = int(result_dict['oml:setup_parameters']['oml:setup_id'])
     flow_id = int(result_dict['oml:setup_parameters']['oml:flow_id'])
     parameters = {}
@@ -280,6 +341,7 @@ def _create_setup_from_xml(result_dict):
             raise ValueError('Expected None, list or dict, received someting else: %s' %str(type(xml_parameters)))
 
     return OpenMLSetup(setup_id, flow_id, parameters)
+
 
 def _create_setup_parameter_from_xml(result_dict):
     return OpenMLParameter(int(result_dict['oml:id']),

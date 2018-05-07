@@ -109,9 +109,20 @@ class TestSetupFunctions(TestBase):
                                    random_state=1)
         )
 
+    def test_get_partial_setup(self):
+        task = openml.tasks.get_task(119)
+        flow = openml.flows.sklearn_to_flow(DecisionTreeClassifier(max_depth=1))
+        run = openml.runs.run_flow_on_task(task, flow, avoid_duplicate_runs=False)
+        run.publish()
+
+        for param in ['random_state', 'max_depth', 'min_samples_leaf']:
+            partial_setup = openml.setups.get_partial_setup(flow, ignore_parameters=[param])
+            self.assertGreaterEqual(partial_setup, 1)
+
+
     def test_get_setup(self):
         # no setups in default test server
-        openml.config.server = 'https://www.openml.org/api/v1/xml/'
+        openml.config.server = self.production_server
 
         # contains all special cases, 0 params, 1 param, n params.
         # Non scikitlearn flows.
