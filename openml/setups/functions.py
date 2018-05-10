@@ -58,11 +58,12 @@ def setup_exists(flow, model=None):
         return False
 
 
-def get_partial_setup(full_setup, ignore_parameters=[]):
+def list_partial_setups(full_setup, ignore_parameters):
     """
-    Checks whether a partial hyperparameter configuration already
-    exists on the server. It does this based on an example setup
-    and a set of hyperparameters that should be ignored
+    Returns a list setups that are equal to a given setup, except
+    for a set of parameters that are specified. For example, all
+    it can return all setups that are equal to a given setup except
+    on the random state parameter
 
     Parameters
     ----------
@@ -77,8 +78,9 @@ def get_partial_setup(full_setup, ignore_parameters=[]):
 
     Returns
     -------
-    setup_id : int
-        setup id iff exists, False otherwise
+    setups : dict[int,OpenMLSetup]
+        a dictionary containing the partial setups of full_setup.
+        the dictionary maps from setup id to OpenMLSetup objects
     """
     if len(ignore_parameters) > 2:
         raise ValueError('Function in beta stage, please specify at most 2 ignore parameters')
@@ -111,6 +113,46 @@ def get_partial_setup(full_setup, ignore_parameters=[]):
         setups[current.setup_id] = current
 
     return setups
+
+
+def is_partial_setup(full_setup, partial_setup, ignore_parameters):
+    """
+    Checks whether a given setup is equal to another on all
+    parameters except the ones given in ignore parameters
+
+    Parameters
+    ----------
+
+    full_setup : OpenMLSetup
+        The (original) full setup
+
+    partial_setup : list
+        The partial setup
+
+    ignore_parameters : list
+        The list of parameters that might be ignored (max 2)
+
+    Returns
+    -------
+    is_equal : bool
+        True if the setups are equal on all but the ignore
+        parameters, False otherwise
+    """
+    if full_setup.flow_id != partial_setup.flow_id:
+        return False
+
+    original_parameters = dict()
+    partial_parameters = dict()
+
+    for _, param in full_setup.parameters.items():
+        if param.parameter_name in ignore_parameters:
+            continue
+        original_parameters[(param.flow_id, param.parameter_name)] = param.value
+    for _, param in partial_setup.parameters.items():
+        if param.parameter_name in ignore_parameters:
+            continue
+        partial_parameters[(param.flow_id, param.parameter_name)] = param.value
+    return original_parameters == partial_parameters
 
 
 def _get_cached_setup(setup_id):

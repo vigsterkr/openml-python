@@ -117,9 +117,11 @@ class TestSetupFunctions(TestBase):
         examplar_setup = openml.setups.get_setup(run.setup_id)
 
         for param in ['random_state', 'max_depth', 'min_samples_leaf']:
-            partial_setup = openml.setups.get_partial_setup(examplar_setup, ignore_parameters=[param])
-            self.assertGreaterEqual(partial_setup, 1)
+            partial_setups = openml.setups.list_partial_setups(examplar_setup, ignore_parameters=[param])
+            self.assertGreaterEqual(len(partial_setups), 1)
 
+            for partial_setup in partial_setups.values():
+                self.assertTrue(openml.setups.is_partial_setup(examplar_setup, partial_setup, ignore_parameters=[param]))
 
     def test_get_setup(self):
         # no setups in default test server
