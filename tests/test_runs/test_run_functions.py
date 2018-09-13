@@ -523,6 +523,9 @@ class TestRun(TestBase):
         self.assertEquals(flowS.components['Imputer'].parameters['strategy'], '"median"')
         self.assertEquals(flowS.components['VarianceThreshold'].parameters['threshold'], '0.05')
 
+    # TODO add test about initializing a model from a run given a parameter distribution - also
+    # check for other de-serialization functions which might have the same issue!
+
     def test_get_run_trace(self):
         # get_run_trace is already tested implicitly in test_run_and_publish
         # this test is a bit additional.

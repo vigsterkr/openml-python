@@ -2,6 +2,7 @@ import collections
 import io
 import json
 import os
+import re
 import sys
 import time
 import warnings
@@ -150,6 +151,7 @@ def run_flow_on_task(flow, task, avoid_duplicate_runs=True, flow_tags=None,
         model=flow.model,
         tags=tags,
         flow_name=flow.name,
+        flow=flow,
     )
     run.parameter_settings = OpenMLRun._parse_parameters(flow)
 
@@ -445,6 +447,10 @@ def _run_task_get_arffcontent(model, task, add_local_measures):
     # methods, less maintenance, less confusion)
     num_reps, num_folds, num_samples = task.get_split_dimensions()
 
+    usercpu_time_millis_training = 0
+    usercpu_time_millis_testing = 0
+    usercpu_time_millis = 0
+
     for rep_no in range(num_reps):
         for fold_no in range(num_folds):
             for sample_no in range(num_samples):
@@ -458,6 +464,13 @@ def _run_task_get_arffcontent(model, task, add_local_measures):
                 arff_tracecontent.extend(arff_tracecontent_fold)
 
                 for measure in user_defined_measures_fold:
+
+                    if measure == 'usercpu_time_millis_training':
+                        usercpu_time_millis_training += user_defined_measures_fold[measure]
+                    if measure == 'usercpu_time_millis_testing':
+                        usercpu_time_millis_testing += user_defined_measures_fold[measure]
+                    if measure == 'usercpu_time_millis':
+                        usercpu_time_millis += user_defined_measures_fold[measure]
 
                     if measure not in user_defined_measures_per_fold:
                         user_defined_measures_per_fold[measure] = collections.OrderedDict()
@@ -560,12 +573,15 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
     try:
         # for measuring runtime. Only available since Python 3.3
         if can_measure_runtime:
-            modelfit_starttime = time.process_time()
+            modelfit_starttime_cpu = time.process_time()
+        modelfit_starttime_wt = time.process_time()
         model.fit(trainX, trainY)
 
         if can_measure_runtime:
-            modelfit_duration = (time.process_time() - modelfit_starttime) * 1000
-            user_defined_measures['usercpu_time_millis_training'] = modelfit_duration
+            modelfit_duration_cpu = (time.process_time() - modelfit_starttime_cpu) * 1000
+            user_defined_measures['usercpu_time_millis_training'] = modelfit_duration_cpu
+        modelfit_duration_wt = (time.time() - modelfit_starttime_wt) * 1000
+        #user_defined_measures['wallclock_time_millis_training'] = modelfit_duration_wt
     except AttributeError as e:
         # typically happens when training a regressor on classification task
         raise PyOpenMLError(str(e))
@@ -574,6 +590,12 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
     arff_tracecontent = []
     if isinstance(model, sklearn.model_selection._search.BaseSearchCV):
         arff_tracecontent.extend(_extract_arfftrace(model, rep_no, fold_no))
+        # Overwrite the measured information with the information returned by scikit-learn
+        modelfit_duration_wt = (
+            model.refit_time_
+            + sum([trace_line[5] for trace_line in arff_tracecontent])
+        ) * 1000
+        #user_defined_measures['wallclock_time_millis_training'] = modelfit_duration_wt
 
     # search for model classes_ (might differ depending on modeltype)
     # first, pipelines are a special case (these don't have a classes_
@@ -590,7 +612,8 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
         model_classes = used_estimator.classes_
 
     if can_measure_runtime:
-        modelpredict_starttime = time.process_time()
+        modelpredict_starttime_cpu = time.process_time()
+    modelpredict_starttime_wt = time.time()
 
     PredY = model.predict(testX)
     try:
@@ -599,9 +622,12 @@ def _run_model_on_fold(model, task, rep_no, fold_no, sample_no, can_measure_runt
         ProbaY = _prediction_to_probabilities(PredY, list(model_classes))
 
     if can_measure_runtime:
-        modelpredict_duration = (time.process_time() - modelpredict_starttime) * 1000
-        user_defined_measures['usercpu_time_millis_testing'] = modelpredict_duration
-        user_defined_measures['usercpu_time_millis'] = modelfit_duration + modelpredict_duration
+        modelpredict_duration_cpu = (time.process_time() - modelpredict_starttime_cpu) * 1000
+        user_defined_measures['usercpu_time_millis_testing'] = modelpredict_duration_cpu
+        user_defined_measures['usercpu_time_millis'] = modelfit_duration_cpu + modelpredict_duration_cpu
+    modelpredict_duration_wt = (time.time() - modelpredict_starttime_wt) * 1000
+    #user_defined_measures['wallclock_time_millis_testing'] = modelpredict_duration_wt
+    #user_defined_measures['wallclock_time_millis'] = modelfit_duration_wt + modelpredict_duration_wt
 
     if ProbaY.shape[1] != len(task.class_labels):
         warnings.warn("Repeat %d Fold %d: estimator only predicted for %d/%d classes!" % (rep_no, fold_no, ProbaY.shape[1], len(task.class_labels)))
@@ -629,14 +655,28 @@ def _extract_arfftrace(model, rep_no, fold_no):
     if not hasattr(model, 'cv_results_'):
         raise ValueError('model should contain `cv_results_`')
 
+    pattern = re.compile(r'split\d+_test_score')
+
     arff_tracecontent = []
     for itt_no in range(0, len(model.cv_results_['mean_test_score'])):
+        # Extract the number of internal splits:
+        keys = list(model.cv_results_.keys())
+        folds = [pattern.match(string) for string in keys]
+        folds = list(filter(lambda x: x, folds))
+        n_folds = len(folds)
+
         # we use the string values for True and False, as it is defined in this way by the OpenML server
         selected = 'false'
         if itt_no == model.best_index_:
             selected = 'true'
         test_score = model.cv_results_['mean_test_score'][itt_no]
-        arff_line = [rep_no, fold_no, itt_no, test_score, selected]
+        # scikit-learn does not directly provide the information per fold so we need to calculate
+        # that from the mean
+        required_time = (
+            model.cv_results_['mean_fit_time'][itt_no] * n_folds
+            + model.cv_results_['mean_score_time'][itt_no] * n_folds
+        )
+        arff_line = [rep_no, fold_no, itt_no, test_score, selected, required_time]
         for key in model.cv_results_:
             if key.startswith('param_'):
                 serialized_value = json.dumps(model.cv_results_[key][itt_no])
@@ -653,11 +693,14 @@ def _extract_arfftrace_attributes(model):
         raise ValueError('model should contain `cv_results_`')
 
     # attributes that will be in trace arff, regardless of the model
-    trace_attributes = [('repeat', 'NUMERIC'),
-                        ('fold', 'NUMERIC'),
-                        ('iteration', 'NUMERIC'),
-                        ('evaluation', 'NUMERIC'),
-                        ('selected', ['true', 'false'])]
+    trace_attributes = [
+        ('repeat', 'NUMERIC'),
+        ('fold', 'NUMERIC'),
+        ('iteration', 'NUMERIC'),
+        ('evaluation', 'NUMERIC'),
+        ('selected', ['true', 'false']),
+        ('time', 'NUMERIC'),
+    ]
 
     # model dependent attributes for trace arff
     for key in model.cv_results_:
@@ -784,7 +827,7 @@ def _create_run_from_xml(xml, from_server=True):
             current_parameter['oml:name'] = parameter_dict['oml:name']
             current_parameter['oml:value'] = parameter_dict['oml:value']
             if 'oml:component' in parameter_dict:
-                current_parameter['oml:component'] = parameter_dict['oml:component']
+                current_parameter['oml:component'] = int(parameter_dict['oml:component'])
             parameters.append(current_parameter)
 
     if 'oml:input_data' in run:

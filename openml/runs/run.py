@@ -574,6 +574,24 @@ def _to_dict(taskid, flow_id, setup_string, error_message, parameter_settings,
                                                ('@sample', str(sample)), ('oml:name', measure),
                                                ('oml:value', str(value))])
                         description['oml:run']['oml:output_data']['oml:evaluation'].append(current)
+    # description['oml:run']['oml:output_data']['oml:evaluation'].append(
+    #     OrderedDict([
+    #         ('oml:name', 'usercpu_time_millis_training'),
+    #         ('oml:value', '12345'),
+    #     ])
+    # )
+    # description['oml:run']['oml:output_data']['oml:evaluation'].append(
+    #     OrderedDict([
+    #         ('oml:name', 'usercpu_time_millis_testing'),
+    #         ('oml:value', '123'),
+    #     ])
+    # )
+    # description['oml:run']['oml:output_data']['oml:evaluation'].append(
+    #     OrderedDict([
+    #         ('oml:name', 'usercpu_time_millis'),
+    #         ('oml:value', '67890'),
+    #     ])
+    # )
     return description
 
 
