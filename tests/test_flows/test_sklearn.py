@@ -27,11 +27,11 @@ import sklearn.preprocessing
 import sklearn.tree
 import sklearn.cluster
 
-import openml
-from openml.flows import OpenMLFlow, sklearn_to_flow, flow_to_sklearn
+from openml.flows import OpenMLFlow
 from openml.flows.functions import assert_flows_equal
-from openml.flows.sklearn_converter import _format_external_version, \
-    _check_dependencies, _check_n_jobs
+from openml.flows.sklearn_converter import SKLearnConverter
+#_format_external_version, \
+#    _check_dependencies, _check_n_jobs
 from openml.exceptions import PyOpenMLError
 
 this_directory = os.path.dirname(os.path.abspath(__file__))
@@ -54,13 +54,13 @@ class Model(sklearn.base.BaseEstimator):
 class TestSklearn(unittest.TestCase):
     # Splitting not helpful, these test's don't rely on the server and take less
     # than 1 seconds
-    
+
     def setUp(self):
         iris = sklearn.datasets.load_iris()
         self.X = iris.data
         self.y = iris.target
 
-    @mock.patch('openml.flows.sklearn_converter._check_dependencies')
+    @mock.patch('openml.flows.sklearn_converter.AbstractConverter._check_dependencies')
     def test_serialize_model(self, check_dependencies_mock):
         model = sklearn.tree.DecisionTreeClassifier(criterion='entropy',
                                                     max_features='auto',
@@ -84,15 +84,16 @@ class TestSklearn(unittest.TestCase):
                          ('random_state', 'null'),
                          ('splitter', '"best"')))
 
-        serialization = sklearn_to_flow(model)
-
+        serialization = SKLearnConverter(model).to_flow()
+        print(serialization.parameters)
+        print(fixture_parameters)
         self.assertEqual(serialization.name, fixture_name)
         self.assertEqual(serialization.class_name, fixture_name)
         self.assertEqual(serialization.description, fixture_description)
         self.assertEqual(serialization.parameters, fixture_parameters)
         self.assertEqual(serialization.dependencies, version_fixture)
 
-        new_model = flow_to_sklearn(serialization)
+        new_model = SKLearnConverter.from_flow(serialization)
 
         self.assertEqual(type(new_model), type(model))
         self.assertIsNot(new_model, model)
@@ -100,10 +101,9 @@ class TestSklearn(unittest.TestCase):
         self.assertEqual(new_model.get_params(), model.get_params())
         new_model.fit(self.X, self.y)
 
-        self.assertEqual(check_dependencies_mock.call_count, 1)
 
 
-    @mock.patch('openml.flows.sklearn_converter._check_dependencies')
+    @mock.patch('openml.flows.sklearn_converter.AbstractConverter._check_dependencies')
     def test_serialize_model_clustering(self, check_dependencies_mock):
         model = sklearn.cluster.KMeans()
 
@@ -124,7 +124,7 @@ class TestSklearn(unittest.TestCase):
                          ('tol', '0.0001'),
                          ('verbose', '0')))
 
-        serialization = sklearn_to_flow(model)
+        serialization = SKLearnConverter(model).to_flow()
 
         self.assertEqual(serialization.name, fixture_name)
         self.assertEqual(serialization.class_name, fixture_name)
@@ -132,7 +132,7 @@ class TestSklearn(unittest.TestCase):
         self.assertEqual(serialization.parameters, fixture_parameters)
         self.assertEqual(serialization.dependencies, version_fixture)
 
-        new_model = flow_to_sklearn(serialization)
+        new_model = SKLearnConverter.from_flow(serialization)
 
         self.assertEqual(type(new_model), type(model))
         self.assertIsNot(new_model, model)
@@ -155,7 +155,7 @@ class TestSklearn(unittest.TestCase):
         fixture_subcomponent_class_name = 'sklearn.tree.tree.DecisionTreeClassifier'
         fixture_subcomponent_description = 'Automatically created scikit-learn flow.'
 
-        serialization =  sklearn_to_flow(model)
+        serialization = SKLearnConverter(model).to_flow()
 
         self.assertEqual(serialization.name, fixture_name)
         self.assertEqual(serialization.class_name, fixture_class_name)
@@ -171,7 +171,7 @@ class TestSklearn(unittest.TestCase):
         self.assertEqual(serialization.components['base_estimator'].description,
                          fixture_subcomponent_description)
 
-        new_model = flow_to_sklearn(serialization)
+        new_model = SKLearnConverter.from_flow(serialization)
 
         self.assertEqual(type(new_model), type(model))
         self.assertIsNot(new_model, model)
@@ -198,7 +198,7 @@ class TestSklearn(unittest.TestCase):
                        'dummy=sklearn.dummy.DummyClassifier)'
         fixture_description = 'Automatically created scikit-learn flow.'
 
-        serialization =  sklearn_to_flow(model)
+        serialization = SKLearnConverter(model).to_flow()
 
         self.assertEqual(serialization.name, fixture_name)
         self.assertEqual(serialization.description, fixture_description)
@@ -223,7 +223,7 @@ class TestSklearn(unittest.TestCase):
                               OpenMLFlow)
 
         #del serialization.model
-        new_model = flow_to_sklearn(serialization)
+        new_model = SKLearnConverter.from_flow(serialization)
 
         self.assertEqual(type(new_model), type(model))
         self.assertIsNot(new_model, model)
@@ -409,8 +409,8 @@ class TestSklearn(unittest.TestCase):
                            int, np.int, np.int32, np.int64]
 
         for supported_type in supported_types:
-            serialized = sklearn_to_flow(supported_type)
-            deserialized = flow_to_sklearn(serialized)
+            serialized = SKLearnConverter._sklearn_to_flow(supported_type)
+            deserialized = SKLearnConverter.from_flow(serialized)
             self.assertEqual(deserialized, supported_type)
 
     def test_serialize_rvs(self):
@@ -538,8 +538,8 @@ class TestSklearn(unittest.TestCase):
     def test_serialize_resampling(self):
         kfold = sklearn.model_selection.StratifiedKFold(
             n_splits=4, shuffle=True)
-        serialized =  sklearn_to_flow(kfold)
-        deserialized = flow_to_sklearn(serialized)
+        serialized =  SKLearnConverter._sklearn_to_flow(kfold)
+        deserialized = SKLearnConverter.from_flow(serialized)
         # Best approximation to get_params()
         self.assertEqual(str(deserialized), str(kfold))
         self.assertIsNot(deserialized, kfold)
@@ -746,11 +746,11 @@ class TestSklearn(unittest.TestCase):
         pipe_adjusted = sklearn.clone(pipe_orig)
         params = {'Imputer__strategy': 'median', 'OneHotEncoder__sparse': False, 'Estimator__n_estimators': 10}
         pipe_adjusted.set_params(**params)
-        flow = openml.flows.sklearn_to_flow(pipe_adjusted)
-        pipe_deserialized = openml.flows.flow_to_sklearn(flow, initialize_with_defaults=True)
+        flow = SKLearnConverter(pipe_adjusted).to_flow()
+        pipe_deserialized = SKLearnConverter.from_flow(flow, initialize_with_defaults=True)
 
         # we want to compare pipe_deserialized and pipe_orig. We use the flow equals function for this
-        assert_flows_equal(openml.flows.sklearn_to_flow(pipe_orig), openml.flows.sklearn_to_flow(pipe_deserialized))
+        assert_flows_equal(SKLearnConverter(pipe_orig).to_flow(), SKLearnConverter(pipe_deserialized).to_flow())
 
     def test_deserialize_complex_with_defaults(self):
         # used the 'initialize_with_defaults' flag of the deserialization method to return a flow
